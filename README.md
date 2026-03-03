@@ -9,8 +9,14 @@
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/whoisqcm/WeSaver?style=flat-square&color=blue)](https://github.com/whoisqcm/WeSaver/releases/latest)
+[![Download](https://img.shields.io/github/downloads/whoisqcm/WeSaver/total?style=flat-square&color=brightgreen)](https://github.com/whoisqcm/WeSaver/releases/latest)
 
 <img src="https://img.shields.io/badge/WeChat-Article_Archiver-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="WeChat Article Archiver"/>
+
+<br/>
+
+[**>>> 下载最新版 / Download Latest Release <<<**](https://github.com/whoisqcm/WeSaver/releases/latest)
 
 ---
 
@@ -57,7 +63,13 @@
 
 - **Windows 10/11** (WebView2 runtime, usually pre-installed)
 - **WeChat for PC** (to trigger token capture)
-- **Go 1.24+** (for building from source)
+- **Go 1.24+** (for building from source only)
+
+### Download
+
+> **[Download WeSaver.exe from Latest Release](https://github.com/whoisqcm/WeSaver/releases/latest)**
+>
+> Just download and double-click — no installation required.
 
 ---
 
@@ -74,10 +86,14 @@
 
 ### 下载与运行
 
+> **[点击这里下载最新版 WeSaver.exe](https://github.com/whoisqcm/WeSaver/releases/latest)** — 下载后双击运行，无需安装。
+
+或从源码构建：
+
 ```powershell
 # 克隆仓库
-git clone https://github.com/whoisqcm/WechatSaver.git
-cd WechatSaver
+git clone https://github.com/whoisqcm/WeSaver.git
+cd WeSaver
 
 # 构建
 .\build.ps1
