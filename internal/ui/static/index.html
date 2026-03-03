@@ -57,7 +57,7 @@
             <label>抓取页数</label>
             <input type="number" id="pages" value="1" min="1" style="max-width:100px">
             <label>抓取数量</label>
-            <input type="number" id="maxArticles" value="0" min="0" style="max-width:100px" title="0=不限制">
+            <input type="number" id="maxArticles" value="0" min="0" style="max-width:100px" title="0=不截断，实际范围由页数决定">
             <button class="btn-primary" onclick="autoCalcPages()">按数量算页数</button>
         </div>
         <div class="form-row">
@@ -101,7 +101,7 @@
     </div>
 
     <div class="card hint">
-        使用提示：点"开始抓 token" → 在微信 PC 打开公众号主页触发请求 → token 自动回填。也可手工粘贴 token 链接并点"校验 token"确认可用，再执行任务。抓取数量填 0 为不限制；可点"按数量算页数"；支持速度档位与并发调节。
+        使用提示：点"开始抓 token" → 在微信 PC 打开公众号主页触发请求 → token 自动回填。也可手工粘贴 token 链接并点"校验 token"确认可用，再执行任务。抓取范围由"页数"决定（每页约 10 篇），"抓取数量"仅用于截断上限（0=不截断）；填写数量后可点"按数量算页数"自动换算。
     </div>
 
     <div class="card">
