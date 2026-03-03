@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeSaver</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f5f5; padding: 16px; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 16px; font-size: 22px; color: #1a1a1a; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+        .form-row { display: flex; align-items: center; margin-bottom: 8px; gap: 12px; flex-wrap: wrap; }
+        .form-row label { min-width: 100px; font-size: 14px; color: #555; }
+        .form-row input, .form-row select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .form-row input[type="text"], .form-row input[type="number"] { flex: 1; min-width: 120px; }
+        .form-row .token-input { flex: 3; }
+        .checkbox-group { display: flex; gap: 16px; flex-wrap: wrap; }
+        .checkbox-group label { min-width: auto; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        button { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #4a90d9; color: #fff; }
+        .btn-primary:hover { background: #357abd; }
+        .btn-danger { background: #d94a4a; color: #fff; }
+        .btn-danger:hover { background: #c03030; }
+        .btn-warn { background: #e6a817; color: #fff; }
+        .btn-warn:hover { background: #d09510; }
+        .btn-success { background: #4a9; color: #fff; }
+        .btn-success:hover { background: #3a8; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status { font-size: 13px; color: #666; margin-left: 8px; }
+        .status.ok { color: #2a7; }
+        .status.err { color: #d44; }
+        .log-area { background: #1e1e1e; color: #d4d4d4; font-family: "Consolas", "Courier New", monospace; font-size: 13px; padding: 12px;
+            border-radius: 6px; height: 350px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+        .hint { background: #fafafa; padding: 10px 14px; border-radius: 6px; font-size: 13px; color: #666; line-height: 1.6; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>WeSaver</h1>
+
+    <div class="card">
+        <div class="form-row">
+            <label>任务名称</label>
+            <input type="text" id="taskName" placeholder="自动填充">
+            <label>输出目录</label>
+            <input type="text" id="outputRoot" value="output">
+        </div>
+        <div class="form-row">
+            <label>Token 链接</label>
+            <input type="text" id="tokenUrl" class="token-input" placeholder="粘贴 /mp/profile_ext 链接或自动抓取">
+            <button class="btn-primary" id="btnValidate" onclick="validateToken()">校验 token</button>
+            <span class="status" id="tokenStatus">未校验</span>
+        </div>
+        <div class="form-row">
+            <label>抓取页数</label>
+            <input type="number" id="pages" value="1" min="1" style="max-width:100px">
+            <label>抓取数量</label>
+            <input type="number" id="maxArticles" value="0" min="0" style="max-width:100px" title="0=不限制">
+            <button class="btn-primary" onclick="autoCalcPages()">按数量算页数</button>
+        </div>
+        <div class="form-row">
+            <label>抓取速度</label>
+            <select id="speedIndex">
+                <option value="0">慢速（默认，防封）</option>
+                <option value="1">标准</option>
+                <option value="2">高速（风险更高）</option>
+            </select>
+            <label>线程并发</label>
+            <input type="number" id="concurrency" value="2" min="1" max="64" style="max-width:80px">
+            <label>详情采样率</label>
+            <input type="number" id="sampleRate" value="0.25" min="0" max="1" step="0.05" style="max-width:80px">
+        </div>
+        <div class="form-row">
+            <div class="checkbox-group">
+                <label><input type="checkbox" id="exportHtml" checked> HTML 原文</label>
+                <label><input type="checkbox" id="exportMd" checked> Markdown</label>
+                <label><input type="checkbox" id="exportExcel" checked> 详情 Excel</label>
+                <label><input type="checkbox" id="fetchComments"> 抓取评论</label>
+                <label><input type="checkbox" id="resume" checked> 断点续传</label>
+                <label><input type="checkbox" id="overwrite"> 覆盖已抓取</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="btn-row">
+            <button class="btn-success" onclick="startCapture()">1) 开始抓 token</button>
+            <button class="btn-warn" onclick="stopCapture()">停止抓取</button>
+            <span class="status" id="captureStatus">未开始</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="btn-row">
+            <button class="btn-primary" id="btnRun" onclick="runTask()">2) 执行任务</button>
+            <button class="btn-danger" onclick="cancelTask()">取消任务</button>
+            <span class="status" id="runStatus">待命</span>
+        </div>
+    </div>
+
+    <div class="card hint">
+        使用提示：点"开始抓 token" → 在微信 PC 打开公众号主页触发请求 → token 自动回填。也可手工粘贴 token 链接并点"校验 token"确认可用，再执行任务。抓取数量填 0 为不限制；可点"按数量算页数"；支持速度档位与并发调节。
+    </div>
+
+    <div class="card">
+        <div class="log-area" id="logArea"></div>
+    </div>
+</div>
+
+<script>
+let logPollTimer = null;
+let capturePollTimer = null;
+
+async function api(path, data) {
+    const resp = await fetch('/api/' + path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data || {})
+    });
+    return resp.json();
+}
+
+async function validateToken() {
+    const url = document.getElementById('tokenUrl').value.trim();
+    if (!url) { setStatus('tokenStatus', '请先填写链接', 'err'); return; }
+    setStatus('tokenStatus', '校验中...', '');
+    document.getElementById('btnValidate').disabled = true;
+    try {
+        const r = await api('validate-token', { token_url: url });
+        if (r.valid) {
+            setStatus('tokenStatus', r.message, 'ok');
+            if (r.task_name) document.getElementById('taskName').value = r.task_name;
+        } else {
+            setStatus('tokenStatus', r.message, 'err');
+        }
+    } catch(e) {
+        setStatus('tokenStatus', '校验异常', 'err');
+    }
+    document.getElementById('btnValidate').disabled = false;
+}
+
+async function startCapture() {
+    setStatus('captureStatus', '启动中...', '');
+    const r = await api('start-capture');
+    if (r.ok) {
+        setStatus('captureStatus', '抓取中（请在微信打开公众号主页）', 'ok');
+        capturePollTimer = setInterval(pollCaptureStatus, 800);
+    } else {
+        setStatus('captureStatus', r.message, 'err');
+    }
+}
+
+async function pollCaptureStatus() {
+    try {
+        const r = await api('capture-status');
+        if (r.token_url) {
+            document.getElementById('tokenUrl').value = r.token_url;
+            setStatus('captureStatus', '已捕获 token！', 'ok');
+            setStatus('tokenStatus', '已自动捕获（待校验）', '');
+            clearInterval(capturePollTimer);
+            stopCapture();
+        }
+    } catch(e) {}
+}
+
+async function stopCapture() {
+    clearInterval(capturePollTimer);
+    await api('stop-capture');
+    setStatus('captureStatus', '已停止', '');
+}
+
+async function runTask() {
+    const tokenUrl = document.getElementById('tokenUrl').value.trim();
+    if (!tokenUrl) { alert('请先填写或抓取 token 链接'); return; }
+
+    const pages = parseInt(document.getElementById('pages').value) || 1;
+    if (pages <= 0) { alert('页数必须 > 0'); return; }
+
+    const data = {
+        token_url: tokenUrl,
+        task_name: document.getElementById('taskName').value.trim(),
+        pages: pages,
+        max_articles: parseInt(document.getElementById('maxArticles').value) || 0,
+        output_root: document.getElementById('outputRoot').value.trim() || 'output',
+        speed_index: parseInt(document.getElementById('speedIndex').value),
+        concurrency: parseInt(document.getElementById('concurrency').value) || 2,
+        export_html: document.getElementById('exportHtml').checked,
+        export_markdown: document.getElementById('exportMd').checked,
+        export_excel: document.getElementById('exportExcel').checked,
+        fetch_comments: document.getElementById('fetchComments').checked,
+        sample_rate: parseFloat(document.getElementById('sampleRate').value) || 0.25,
+        resume: document.getElementById('resume').checked,
+        overwrite: document.getElementById('overwrite').checked
+    };
+
+    setStatus('runStatus', '运行中...', 'ok');
+    document.getElementById('btnRun').disabled = true;
+
+    const r = await api('run-task', data);
+    if (!r.ok) {
+        setStatus('runStatus', r.message, 'err');
+        document.getElementById('btnRun').disabled = false;
+    }
+
+    if (!logPollTimer) {
+        logPollTimer = setInterval(pollLogs, 600);
+    }
+}
+
+async function cancelTask() {
+    await api('cancel-task');
+    setStatus('runStatus', '取消中...', 'err');
+}
+
+async function pollLogs() {
+    try {
+        const r = await api('logs');
+        const area = document.getElementById('logArea');
+        area.textContent = (r.logs || []).join('\n');
+        area.scrollTop = area.scrollHeight;
+
+        if (!r.running && document.getElementById('btnRun').disabled) {
+            document.getElementById('btnRun').disabled = false;
+            setStatus('runStatus', '完成', 'ok');
+        }
+    } catch(e) {}
+}
+
+function autoCalcPages() {
+    const max = parseInt(document.getElementById('maxArticles').value) || 0;
+    if (max <= 0) return;
+    document.getElementById('pages').value = Math.ceil(max / 10);
+}
+
+function setStatus(id, text, cls) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+// Start log polling
+setInterval(pollLogs, 1500);
+</script>
+</body>
+</html>
