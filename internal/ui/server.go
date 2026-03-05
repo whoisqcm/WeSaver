@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -89,7 +90,8 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) boo
 		writeJSON(w, map[string]interface{}{"ok": false, "message": "请求参数无效"})
 		return false
 	}
-	if dec.More() {
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
 		writeJSON(w, map[string]interface{}{"ok": false, "message": "请求体格式错误"})
 		return false
 	}
@@ -391,6 +393,28 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		return
 	}
+	if req.Pages <= 0 {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		writeJSON(w, map[string]interface{}{"ok": false, "message": "页数必须大于 0"})
+		return
+	}
+	if req.MaxArticles < 0 {
+		req.MaxArticles = 0
+	}
+	if req.Concurrency < 1 {
+		req.Concurrency = 1
+	}
+	if req.Concurrency > 64 {
+		req.Concurrency = 64
+	}
+	if req.SampleRate < 0 {
+		req.SampleRate = 0
+	}
+	if req.SampleRate > 1 {
+		req.SampleRate = 1
+	}
 
 	token, ok := models.ParseTokenLink(req.TokenURL)
 	if !ok {
@@ -415,7 +439,7 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 		ExportExcelDetails: req.ExportExcel,
 		MaxRetries:         2,
 		HTTPTimeout:        25 * time.Second,
-		MaxConcurrency:     max(1, req.Concurrency),
+		MaxConcurrency:     req.Concurrency,
 		ListPageDelayMs:    speed.ListPageDelayMs,
 		ArticleDelayMinMs:  speed.ArticleDelayMinMs,
 		ArticleDelayMaxMs:  speed.ArticleDelayMaxMs,

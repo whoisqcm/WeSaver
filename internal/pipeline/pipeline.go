@@ -58,7 +58,10 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 	}
 
 	// Phase 1: Collect article list
-	allArticles, _ := p.collectArticles(ctx, client, token, pages)
+	allArticles, err := p.collectArticles(ctx, client, token, pages)
+	if err != nil {
+		return nil, err
+	}
 	p.logf("列表抓取完成: %d 篇(去重后)", len(allArticles))
 
 	originalTotal := len(allArticles)
@@ -285,14 +288,16 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 	}, nil
 }
 
-func (p *Pipeline) collectArticles(ctx context.Context, client *api.Client, token *models.TokenLink, pages int) ([]models.ArticleRecord, map[string]bool) {
+func (p *Pipeline) collectArticles(ctx context.Context, client *api.Client, token *models.TokenLink, pages int) ([]models.ArticleRecord, error) {
 	var allArticles []models.ArticleRecord
 	idSet := make(map[string]bool)
+	failedPages := 0
+	var lastErr error
 
 	for page := 0; page < pages; page++ {
 		select {
 		case <-ctx.Done():
-			return allArticles, idSet
+			return allArticles, ctx.Err()
 		default:
 		}
 
@@ -300,6 +305,8 @@ func (p *Pipeline) collectArticles(ctx context.Context, client *api.Client, toke
 
 		list, err := client.GetArticleList(ctx, token, page)
 		if err != nil {
+			failedPages++
+			lastErr = err
 			p.logf("List page %d failed: %v. Skipped.", page+1, err)
 			continue
 		}
@@ -315,13 +322,20 @@ func (p *Pipeline) collectArticles(ctx context.Context, client *api.Client, toke
 		if p.opts.ListPageDelayMs > 0 && page < pages-1 {
 			select {
 			case <-ctx.Done():
-				return allArticles, idSet
+				return allArticles, ctx.Err()
 			case <-time.After(time.Duration(p.opts.ListPageDelayMs) * time.Millisecond):
 			}
 		}
 	}
 
-	return allArticles, idSet
+	if len(allArticles) == 0 && failedPages == pages && lastErr != nil {
+		return nil, fmt.Errorf("all list pages failed: %w", lastErr)
+	}
+	if failedPages > 0 {
+		p.logf("列表页抓取异常: 失败 %d/%d 页（其余已继续）", failedPages, pages)
+	}
+
+	return allArticles, nil
 }
 
 func (p *Pipeline) logf(format string, args ...interface{}) {

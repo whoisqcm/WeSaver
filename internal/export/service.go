@@ -46,13 +46,25 @@ func (s *Service) SaveTaskSummary(paths *Paths, content string) error {
 func buildArticleOutputPath(folder, title string, publishTime *string, articleID, ext string) string {
 	stem := buildArticleFileStem(title, publishTime)
 	target := filepath.Join(folder, stem+ext)
-
-	if _, err := os.Stat(target); err == nil {
-		safeSuffix := SanitizePathSegment(articleID)
-		target = filepath.Join(folder, stem+"_"+safeSuffix+ext)
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		return target
 	}
 
-	return target
+	safeSuffix := SanitizePathSegment(articleID)
+	if safeSuffix == "" {
+		safeSuffix = "dup"
+	}
+	target = filepath.Join(folder, stem+"_"+safeSuffix+ext)
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		return target
+	}
+
+	for i := 2; ; i++ {
+		candidate := filepath.Join(folder, fmt.Sprintf("%s_%s_%d%s", stem, safeSuffix, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
 }
 
 func buildArticleFileStem(title string, publishTime *string) string {
@@ -69,8 +81,9 @@ func buildArticleFileStem(title string, publishTime *string) string {
 	}
 
 	stem := fmt.Sprintf("%s_%s", safeTitle, publishText)
-	if len(stem) > 150 {
-		stem = stem[:150]
+	stemRunes := []rune(stem)
+	if len(stemRunes) > 150 {
+		stem = string(stemRunes[:150])
 	}
 	return stem
 }

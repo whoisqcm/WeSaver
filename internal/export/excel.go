@@ -34,8 +34,10 @@ func (e *ExcelExporter) AppendRows(filePath string, rows []map[string]interface{
 	var f *excelize.File
 	var err error
 	sheet := "data"
+	existingFile := false
 
 	if _, statErr := os.Stat(filePath); statErr == nil {
+		existingFile = true
 		f, err = excelize.OpenFile(filePath)
 		if err != nil {
 			return fmt.Errorf("open excel: %w", err)
@@ -79,6 +81,9 @@ func (e *ExcelExporter) AppendRows(filePath string, rows []map[string]interface{
 		}
 	}
 
+	if existingFile {
+		return f.Save()
+	}
 	return f.SaveAs(filePath)
 }
 

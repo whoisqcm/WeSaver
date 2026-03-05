@@ -1,6 +1,7 @@
 package models
 
 import (
+	"html"
 	"net/url"
 	"strings"
 )
@@ -46,7 +47,8 @@ func normalize(input string) string {
 	if s == "" {
 		return ""
 	}
-	s = strings.NewReplacer("&amp;", "&", "amp;", "").Replace(s)
+	s = html.UnescapeString(s)
+	s = strings.ReplaceAll(s, `\u0026`, "&")
 	return s
 }
 

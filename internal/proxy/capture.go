@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,28 +105,49 @@ func (c *Capture) handleConnection(clientConn net.Conn) {
 	// Handle plain HTTP
 	firstLine := strings.SplitN(request, "\r\n", 2)[0]
 	parts := strings.Fields(firstLine)
-	if len(parts) < 2 {
+	if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
 		return
 	}
 
+	method := parts[0]
 	rawURL := parts[1]
-	host := extractHostFromURL(rawURL)
+	if !strings.Contains(rawURL, "://") {
+		hostHeader := extractHostHeader(request)
+		if hostHeader == "" {
+			return
+		}
+		if strings.HasPrefix(rawURL, "/") {
+			rawURL = "http://" + hostHeader + rawURL
+		} else {
+			rawURL = "http://" + hostHeader + "/" + rawURL
+		}
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return
+	}
+	host := u.Host
+	if host == "" {
+		host = extractHostFromURL(rawURL)
+	}
 	c.lastRequestHost.Store(host)
 
 	c.inspectURL(rawURL)
 
 	// Forward using the shared transport that bypasses system proxy to avoid infinite loop
-	req, err := http.NewRequest("GET", rawURL, nil)
+	req, err := http.NewRequest(method, rawURL, nil)
 	if err != nil {
 		return
 	}
+	req.Header.Set("Connection", "close")
 	resp, err := c.directTransport.RoundTrip(req)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 
-	resp.Write(clientConn)
+	_ = resp.Write(clientConn)
 }
 
 func (c *Capture) handleConnect(clientConn net.Conn, request string) {
@@ -135,14 +157,23 @@ func (c *Capture) handleConnect(clientConn net.Conn, request string) {
 		return
 	}
 
-	host := parts[1]
+	host := normalizeConnectHost(parts[1])
+	if host == "" {
+		return
+	}
 	c.lastRequestHost.Store(host)
 
-	hostname := strings.Split(host, ":")[0]
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil && h != "" {
+		hostname = h
+	}
+	hostname = strings.Trim(hostname, "[]")
 	isWechatMP := strings.EqualFold(hostname, "mp.weixin.qq.com")
 
 	// Send 200 Connection Established
-	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+	if err := writeFull(clientConn, []byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		return
+	}
 
 	if !isWechatMP {
 		// For non-wechat, just tunnel
@@ -197,16 +228,18 @@ func (c *Capture) handleConnect(clientConn net.Conn, request string) {
 	reqParts := strings.Fields(reqFirstLine)
 	if len(reqParts) >= 2 {
 		path := reqParts[1]
-		fullURL := fmt.Sprintf("https://%s%s", hostname, path)
+		fullURL := buildHTTPSURL(hostname, path)
 		c.inspectURL(fullURL)
 
-		if strings.Contains(path, "/mp/profile_ext") {
+		if strings.Contains(fullURL, "/mp/profile_ext") {
 			c.profileRequests.Add(1)
 		}
 	}
 
 	// Forward to target
-	targetConn.Write(buf[:n])
+	if err := writeFull(targetConn, buf[:n]); err != nil {
+		return
+	}
 
 	// Relay back
 	done := make(chan struct{})
@@ -263,6 +296,9 @@ func (c *Capture) Stop() {
 	if c.listener != nil {
 		c.listener.Close()
 	}
+	if c.directTransport != nil {
+		c.directTransport.CloseIdleConnections()
+	}
 	c.running = false
 }
 
@@ -310,4 +346,57 @@ func extractHostFromURL(rawURL string) string {
 		return rawURL[:slashIdx]
 	}
 	return rawURL
+}
+
+func extractHostHeader(rawRequest string) string {
+	for _, line := range strings.Split(rawRequest, "\r\n") {
+		if !strings.HasPrefix(strings.ToLower(line), "host:") {
+			continue
+		}
+		return strings.TrimSpace(line[5:])
+	}
+	return ""
+}
+
+func normalizeConnectHost(rawHost string) string {
+	host := strings.TrimSpace(rawHost)
+	if host == "" {
+		return ""
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host + ":443"
+	}
+	return net.JoinHostPort(host, "443")
+}
+
+func buildHTTPSURL(hostname, path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return "https://" + hostname + "/"
+	}
+	lp := strings.ToLower(p)
+	if strings.HasPrefix(lp, "https://") || strings.HasPrefix(lp, "http://") {
+		return p
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "https://" + hostname + p
+}
+
+func writeFull(w io.Writer, data []byte) error {
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		if err != nil {
+			return err
+		}
+		if n <= 0 {
+			return io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return nil
 }

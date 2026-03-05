@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -140,24 +141,29 @@ func (c *Client) GetArticleList(ctx context.Context, token *models.TokenLink, pa
 		return nil, err
 	}
 
-	text := string(body)
-	if !strings.Contains(strings.ToLower(text), "general_msg_list") {
-		return nil, nil
-	}
-
 	var outer map[string]json.RawMessage
 	if err := json.Unmarshal(body, &outer); err != nil {
 		return nil, fmt.Errorf("parse outer: %w", err)
 	}
+	if ret := readRawInt(outer["ret"]); ret != 0 {
+		msg := readRawString(outer["errmsg"])
+		if msg == "" {
+			msg = readRawString(outer["msg"])
+		}
+		return nil, fmt.Errorf("wechat ret=%d msg=%s", ret, msg)
+	}
 
 	listRawJSON, ok := outer["general_msg_list"]
 	if !ok {
-		return nil, nil
+		return []models.ArticleRecord{}, nil
 	}
 
 	var listRawStr string
 	if err := json.Unmarshal(listRawJSON, &listRawStr); err != nil {
 		return nil, fmt.Errorf("parse list string: %w", err)
+	}
+	if strings.TrimSpace(listRawStr) == "" {
+		return []models.ArticleRecord{}, nil
 	}
 
 	var listDoc struct {
@@ -302,8 +308,7 @@ func buildRecord(title, contentURL, cover string, publishAt time.Time) *models.A
 		return nil
 	}
 
-	directURL := strings.ReplaceAll(contentURL, "&amp;", "&")
-	directURL = strings.ReplaceAll(directURL, "amp;", "")
+	directURL := html.UnescapeString(contentURL)
 	directURL = strings.ReplaceAll(directURL, "#wechat_redirect", "")
 
 	u, err := url.Parse(directURL)
@@ -333,6 +338,32 @@ func buildRecord(title, contentURL, cover string, publishAt time.Time) *models.A
 		DirectURL:   directURL,
 		CoverURL:    cover,
 	}
+}
+
+func readRawInt(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var i int
+	if err := json.Unmarshal(raw, &i); err == nil {
+		return i
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int(f)
+	}
+	return 0
+}
+
+func readRawString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func extractBetween(source, startMarker, endMarker string) string {

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Show Go Version
+        shell: pwsh
+        run: go version
+
+      - name: Check Formatting (gofmt)
+        shell: pwsh
+        run: |
+          $files = gofmt -l .
+          if ($files) {
+            Write-Host "Unformatted files found:"
+            Write-Host $files
+            exit 1
+          }
+
+      - name: Download Modules
+        shell: pwsh
+        run: go mod download
+
+      - name: Vet
+        shell: pwsh
+        run: go vet ./...
+
+      - name: Test
+        shell: pwsh
+        run: go test ./... -v -count=1
+
+      - name: Build
+        shell: pwsh
+        run: go build -v -o WeSaver.exe .
