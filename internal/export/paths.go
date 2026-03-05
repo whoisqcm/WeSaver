@@ -76,8 +76,9 @@ func SanitizePathSegment(input string) string {
 	}
 	s = illegalChars.ReplaceAllString(s, "_")
 	s = strings.ReplaceAll(s, ".", "_")
-	if len(s) > 80 {
-		s = s[:80]
+	sRunes := []rune(s)
+	if len(sRunes) > 80 {
+		s = string(sRunes[:80])
 	}
 	return s
 }

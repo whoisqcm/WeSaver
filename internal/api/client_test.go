@@ -42,7 +42,7 @@ func TestReadRawString(t *testing.T) {
 	if got := readRawString(json.RawMessage(`"  abc  "`)); got != "abc" {
 		t.Fatalf("unexpected string parse: %q", got)
 	}
-	if got := readRawString(json.RawMessage(`null`)); got != "null" {
-		t.Fatalf("unexpected non-string fallback: %q", got)
+	if got := readRawString(json.RawMessage(`null`)); got != "" {
+		t.Fatalf("unexpected null parse result: %q", got)
 	}
 }
