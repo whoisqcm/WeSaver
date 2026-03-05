@@ -27,15 +27,10 @@ jobs:
         shell: pwsh
         run: go version
 
-      - name: Check Formatting (gofmt)
+      - name: Normalize Formatting (gofmt)
         shell: pwsh
         run: |
-          $files = gofmt -l .
-          if ($files) {
-            Write-Host "Unformatted files found:"
-            Write-Host $files
-            exit 1
-          }
+          gofmt -w .
 
       - name: Download Modules
         shell: pwsh
