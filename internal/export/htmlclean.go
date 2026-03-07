@@ -20,20 +20,22 @@ func CleanHTMLForOffline(html string) string {
 
 // removeExternalScripts strips <script> tags that load from external URLs.
 // Inline <script>...</script> blocks without a src attribute are preserved.
-var reExternalScript = regexp.MustCompile(`(?is)<script\b[^>]*\bsrc\s*=\s*["'][^"']*["'][^>]*>\s*</script>`)
+var reExternalScript = regexp.MustCompile(`(?is)<script\b[^>]*\bsrc\s*=\s*["'][^"']*["'][^>]*>.*?</script>`)
 
 func removeExternalScripts(html string) string {
 	return reExternalScript.ReplaceAllString(html, "")
 }
 
-// removeExternalStylesheets strips <link rel="stylesheet"> tags pointing to
+// removeExternalStylesheets strips <link rel="stylesheet"> and various preload tags pointing to
 // external resources (res.wx.qq.com, etc.) that would fail offline.
-var reExternalStylesheet = regexp.MustCompile(`(?is)<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*["']https?://[^"']*["'][^>]*/?>`)
-var reExternalStylesheet2 = regexp.MustCompile(`(?is)<link\b[^>]*\bhref\s*=\s*["']https?://[^"']*["'][^>]*\brel\s*=\s*["']stylesheet["'][^>]*/?>`)
+var reExternalStylesheet = regexp.MustCompile(`(?is)<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*["'](?:https?:)?//[^"']*["'][^>]*/?>`)
+var reExternalStylesheet2 = regexp.MustCompile(`(?is)<link\b[^>]*\bhref\s*=\s*["'](?:https?:)?//[^"']*["'][^>]*\brel\s*=\s*["']stylesheet["'][^>]*/?>`)
+var rePreloads = regexp.MustCompile(`(?is)<link\b[^>]*\brel\s*=\s*["'](?:modulepreload|preload|prefetch|dns-prefetch)["'][^>]*/?>`)
 
 func removeExternalStylesheets(html string) string {
 	html = reExternalStylesheet.ReplaceAllString(html, "")
 	html = reExternalStylesheet2.ReplaceAllString(html, "")
+	html = rePreloads.ReplaceAllString(html, "")
 	return html
 }
 

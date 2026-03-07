@@ -177,6 +177,7 @@ async function runTask() {
 
     const pages = parseInt(document.getElementById('pages').value) || 1;
     if (pages <= 0) { alert('页数必须 > 0'); return; }
+    const sampleRateRaw = parseFloat(document.getElementById('sampleRate').value);
 
     const data = {
         token_url: tokenUrl,
@@ -190,7 +191,7 @@ async function runTask() {
         export_markdown: document.getElementById('exportMd').checked,
         export_excel: document.getElementById('exportExcel').checked,
         fetch_comments: document.getElementById('fetchComments').checked,
-        sample_rate: parseFloat(document.getElementById('sampleRate').value) || 0.25,
+        sample_rate: Number.isNaN(sampleRateRaw) ? 0.25 : sampleRateRaw,
         resume: document.getElementById('resume').checked,
         overwrite: document.getElementById('overwrite').checked
     };
@@ -223,7 +224,16 @@ async function pollLogs() {
 
         if (!r.running && document.getElementById('btnRun').disabled) {
             document.getElementById('btnRun').disabled = false;
-            setStatus('runStatus', '完成', 'ok');
+        }
+
+        if (r.task_status === 'completed') {
+            setStatus('runStatus', r.task_message || '完成', 'ok');
+        } else if (r.task_status === 'failed') {
+            setStatus('runStatus', r.task_message || '任务失败', 'err');
+        } else if (r.task_status === 'cancelled' || r.task_status === 'cancelling') {
+            setStatus('runStatus', r.task_message || '已取消', 'err');
+        } else if (r.task_status === 'running') {
+            setStatus('runStatus', r.task_message || '运行中...', 'ok');
         }
     } catch(e) {}
 }

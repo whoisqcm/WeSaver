@@ -18,8 +18,7 @@ func NewService() *Service {
 
 func (s *Service) SaveHTML(paths *Paths, articleID, title string, publishTime *string, html string) error {
 	cleaned := CleanHTMLForOffline(html)
-	target := buildArticleOutputPath(paths.HTMLDir, title, publishTime, articleID, ".html")
-	return os.WriteFile(target, []byte(cleaned), 0o644)
+	return writeUniqueArticleFile(paths.HTMLDir, title, publishTime, articleID, ".html", []byte(cleaned))
 }
 
 func (s *Service) SaveMarkdown(paths *Paths, articleID, title string, publishTime *string, html string) error {
@@ -27,8 +26,7 @@ func (s *Service) SaveMarkdown(paths *Paths, articleID, title string, publishTim
 	if err != nil {
 		markdown = html
 	}
-	target := buildArticleOutputPath(paths.MdDir, title, publishTime, articleID, ".md")
-	return os.WriteFile(target, []byte(markdown), 0o644)
+	return writeUniqueArticleFile(paths.MdDir, title, publishTime, articleID, ".md", []byte(markdown))
 }
 
 func (s *Service) SaveManifest(paths *Paths, manifest interface{}) error {
@@ -44,26 +42,51 @@ func (s *Service) SaveTaskSummary(paths *Paths, content string) error {
 }
 
 func buildArticleOutputPath(folder, title string, publishTime *string, articleID, ext string) string {
+	for attempt := 0; ; attempt++ {
+		target := articleOutputPathCandidate(folder, title, publishTime, articleID, ext, attempt)
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			return target
+		}
+	}
+}
+
+func articleOutputPathCandidate(folder, title string, publishTime *string, articleID, ext string, attempt int) string {
 	stem := buildArticleFileStem(title, publishTime)
-	target := filepath.Join(folder, stem+ext)
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		return target
+	if attempt == 0 {
+		return filepath.Join(folder, stem+ext)
 	}
 
 	safeSuffix := SanitizePathSegment(articleID)
 	if safeSuffix == "" {
 		safeSuffix = "dup"
 	}
-	target = filepath.Join(folder, stem+"_"+safeSuffix+ext)
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		return target
+	if attempt == 1 {
+		return filepath.Join(folder, stem+"_"+safeSuffix+ext)
 	}
 
-	for i := 2; ; i++ {
-		candidate := filepath.Join(folder, fmt.Sprintf("%s_%s_%d%s", stem, safeSuffix, i, ext))
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			return candidate
+	return filepath.Join(folder, fmt.Sprintf("%s_%s_%d%s", stem, safeSuffix, attempt, ext))
+}
+
+func writeUniqueArticleFile(folder, title string, publishTime *string, articleID, ext string, data []byte) error {
+	for attempt := 0; ; attempt++ {
+		target := articleOutputPathCandidate(folder, title, publishTime, articleID, ext, attempt)
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if os.IsExist(err) {
+			continue
 		}
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			_ = os.Remove(target)
+			return err
+		}
+		if err := f.Close(); err != nil {
+			_ = os.Remove(target)
+			return err
+		}
+		return nil
 	}
 }
 

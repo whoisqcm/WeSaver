@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -39,5 +41,42 @@ func TestBuildArticleFileStem_RuneSafeTruncation(t *testing.T) {
 	}
 	if utf8.RuneCountInString(stem) > 150 {
 		t.Fatalf("stem rune count should be <= 150, got %d", utf8.RuneCountInString(stem))
+	}
+}
+
+func TestSaveHTML_ConcurrentNameAllocationDoesNotOverwrite(t *testing.T) {
+	paths := NewPaths(t.TempDir(), "测试公众号", time.Unix(1700000000, 0), "")
+	if err := paths.EnsureFolders(); err != nil {
+		t.Fatalf("ensure folders: %v", err)
+	}
+
+	svc := NewService()
+	publish := "2026-03-06 09:08:07"
+
+	const writers = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < writers; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			html := "<html><body>article-" + string(rune('A'+i)) + "</body></html>"
+			if err := svc.SaveHTML(paths, "same_article_id", "同名文章", &publish, html); err != nil {
+				t.Errorf("SaveHTML failed: %v", err)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	entries, err := os.ReadDir(paths.HTMLDir)
+	if err != nil {
+		t.Fatalf("read html dir: %v", err)
+	}
+	if len(entries) != writers {
+		t.Fatalf("expected %d files, got %d", writers, len(entries))
 	}
 }

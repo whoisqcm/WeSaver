@@ -174,12 +174,7 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 			html, err := client.DownloadHTML(ctx, article.DirectURL)
 			if err != nil {
 				repository.MarkStatus(articleID, "failed", err.Error())
-				errorRows.Store(errorIdx.Add(1), map[string]interface{}{
-					"article_id":    articleID,
-					"title":         article.Title,
-					"direct_url":    article.DirectURL,
-					"error_message": err.Error(),
-				})
+				errorRows.Store(errorIdx.Add(1), buildErrorRow(&article, err.Error()))
 				failed.Add(1)
 				cur := processed.Add(1)
 				if cur%10 == 0 {
@@ -188,10 +183,13 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 				return
 			}
 
+			var articleErrors []string
+
 			if p.opts.ExportHTML {
 				publishStr := formatPublishTime(article.PublishTime)
 				if err := svc.SaveHTML(paths, articleID, article.Title, publishStr, html); err != nil {
 					p.logf("保存 HTML 失败 [%s]: %v", articleID, err)
+					articleErrors = append(articleErrors, "保存 HTML 失败: "+err.Error())
 				}
 			}
 
@@ -199,6 +197,7 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 				publishStr := formatPublishTime(article.PublishTime)
 				if err := svc.SaveMarkdown(paths, articleID, article.Title, publishStr, html); err != nil {
 					p.logf("保存 Markdown 失败 [%s]: %v", articleID, err)
+					articleErrors = append(articleErrors, "保存 Markdown 失败: "+err.Error())
 				}
 			}
 
@@ -208,14 +207,24 @@ func (p *Pipeline) Run(ctx context.Context, taskName string, token *models.Token
 					if err == nil {
 						detail["detail_sampled"] = 1
 						detailRows.Store(detailIdx.Add(1), detail)
+					} else {
+						p.logf("抓取详情失败 [%s]: %v", articleID, err)
+						articleErrors = append(articleErrors, "抓取详情失败: "+err.Error())
 					}
 				} else {
 					detailRows.Store(detailIdx.Add(1), buildSkippedDetailRow(&article))
 				}
 			}
 
-			repository.MarkStatus(articleID, "completed", "")
-			completed.Add(1)
+			if len(articleErrors) > 0 {
+				errMsg := strings.Join(articleErrors, "; ")
+				repository.MarkStatus(articleID, "failed", errMsg)
+				errorRows.Store(errorIdx.Add(1), buildErrorRow(&article, errMsg))
+				failed.Add(1)
+			} else {
+				repository.MarkStatus(articleID, "completed", "")
+				completed.Add(1)
+			}
 
 			cur := processed.Add(1)
 			if cur%10 == 0 {
@@ -391,6 +400,15 @@ func buildSkippedDetailRow(article *models.ArticleRecord) map[string]interface{}
 		"comments":         "[]",
 		"comment_like_nums": "[]",
 		"detail_sampled":   0,
+	}
+}
+
+func buildErrorRow(article *models.ArticleRecord, errMsg string) map[string]interface{} {
+	return map[string]interface{}{
+		"article_id":    article.ArticleID(),
+		"title":         article.Title,
+		"direct_url":    article.DirectURL,
+		"error_message": errMsg,
 	}
 }
 

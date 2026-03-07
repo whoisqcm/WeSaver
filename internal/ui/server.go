@@ -32,6 +32,8 @@ type Server struct {
 	proxySnapshot *proxy.WinInetSnapshot
 	runCancel     context.CancelFunc
 	running       bool
+	taskStatus    string
+	taskMessage   string
 	logs          []string
 	logMu         sync.Mutex
 	httpServer    *http.Server
@@ -39,7 +41,10 @@ type Server struct {
 }
 
 func NewServer() *Server {
-	return &Server{}
+	return &Server{
+		taskStatus:  "idle",
+		taskMessage: "待命",
+	}
 }
 
 func requestOrigin(r *http.Request) string {
@@ -222,6 +227,14 @@ func (s *Server) appendLog(msg string) {
 	}
 }
 
+func (s *Server) setTaskState(running bool, status, message string) {
+	s.mu.Lock()
+	s.running = running
+	s.taskStatus = status
+	s.taskMessage = message
+	s.mu.Unlock()
+}
+
 func (s *Server) handleValidateToken(w http.ResponseWriter, r *http.Request) {
 	if !ensureMethod(w, r, http.MethodPost) || !ensureSameOrigin(w, r) {
 		return
@@ -336,19 +349,20 @@ func (s *Server) handleStopCapture(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCaptureStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	capture := s.proxyCapture
+	s.mu.Unlock()
 
 	result := map[string]interface{}{
 		"running":   false,
 		"token_url": "",
 	}
 
-	if s.proxyCapture != nil {
-		stats := s.proxyCapture.GetStats()
+	if capture != nil {
+		stats := capture.GetStats()
 		result["running"] = true
 		result["stats"] = stats
 
-		if url, ok := s.proxyCapture.TryGetCapturedToken(); ok {
+		if url, ok := capture.TryGetCapturedToken(); ok {
 			result["token_url"] = url
 			s.appendLog("已捕获 token 链接！")
 		}
@@ -369,6 +383,8 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.running = true
+	s.taskStatus = "running"
+	s.taskMessage = "运行中..."
 	s.mu.Unlock()
 
 	var req struct {
@@ -388,15 +404,11 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 		Overwrite     bool    `json:"overwrite"`
 	}
 	if !decodeJSONBody(w, r, &req) {
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
+		s.setTaskState(false, "idle", "待命")
 		return
 	}
 	if req.Pages <= 0 {
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
+		s.setTaskState(false, "idle", "待命")
 		writeJSON(w, map[string]interface{}{"ok": false, "message": "页数必须大于 0"})
 		return
 	}
@@ -418,9 +430,7 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 
 	token, ok := models.ParseTokenLink(req.TokenURL)
 	if !ok {
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
+		s.setTaskState(false, "idle", "待命")
 		writeJSON(w, map[string]interface{}{"ok": false, "message": "token 无效"})
 		return
 	}
@@ -471,7 +481,6 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() {
 			s.mu.Lock()
-			s.running = false
 			s.runCancel = nil
 			s.mu.Unlock()
 		}()
@@ -482,10 +491,17 @@ func (s *Server) handleRunTask(w http.ResponseWriter, r *http.Request) {
 
 		result, err := p.Run(ctx, taskName, token, req.Pages)
 		if err != nil {
+			if err == context.Canceled {
+				s.setTaskState(false, "cancelled", "已取消")
+				s.appendLog("任务已取消")
+				return
+			}
+			s.setTaskState(false, "failed", "任务失败")
 			s.appendLog("任务失败: " + err.Error())
 			return
 		}
 
+		s.setTaskState(false, "completed", "完成")
 		s.appendLog(fmt.Sprintf("完成统计 => 总数: %d, 完成: %d, 跳过: %d, 失败: %d", result.Total, result.Completed, result.Skipped, result.Failed))
 		s.appendLog("结果目录: " + result.OutputRoot)
 
@@ -507,6 +523,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if cancel != nil {
+		s.setTaskState(true, "cancelling", "取消中...")
 		cancel()
 		s.appendLog("任务取消中...")
 	}
@@ -514,19 +531,22 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	running := s.running
+	taskStatus := s.taskStatus
+	taskMessage := s.taskMessage
+	s.mu.Unlock()
+
 	s.logMu.Lock()
 	logs := make([]string, len(s.logs))
 	copy(logs, s.logs)
 	s.logMu.Unlock()
 
-	running := false
-	s.mu.Lock()
-	running = s.running
-	s.mu.Unlock()
-
 	writeJSON(w, map[string]interface{}{
-		"logs":    logs,
-		"running": running,
+		"logs":         logs,
+		"running":      running,
+		"task_status":  taskStatus,
+		"task_message": taskMessage,
 	})
 }
 
